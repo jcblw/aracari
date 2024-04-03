@@ -38,3 +38,14 @@ export const getSurroundingChars = (matchText: string): [string, string] => {
     : "";
   return [leadingChar, endingChar];
 };
+
+/**
+ * joinArrayWith is a utility function that allows for joining strings but instead
+ * of a value to join it with a function is called on the index of the join so
+ * the values can be dynamic.
+ */
+export const joinArrayWith = (arr: string[], onJoin: (params:{ nextIndex: number }) => string) => {
+  return arr.reduce((acc, cur, i) => {
+    return acc + (i === 0 ? "" : onJoin({ nextIndex: i })) + cur;
+  }, "");
+}

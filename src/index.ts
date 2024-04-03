@@ -1,4 +1,4 @@
-import { createRegExpSearch, escapeRegExp, getSurroundingChars } from "./utils";
+import { createRegExpSearch, escapeRegExp, getSurroundingChars, joinArrayWith } from "./utils";
 
 export { escapeRegExp } from "./utils";
 
@@ -9,9 +9,9 @@ interface Config {
 
 interface ReplaceOptions {
   at?: string;
-  perserveWord?: boolean;
+  preserveWord?: boolean;
   replacementIndex?: number;
-  shouldUseNonLatinMatch?: boolean;
+  caseSensitive?: boolean;
 }
 
 type Mapping = string[][];
@@ -42,12 +42,12 @@ export class Aracari<T extends HTMLElement = HTMLElement> {
   public getAddressForText(
     text,
     caseSensitive: boolean = true,
-    perserveWord: boolean = false
+    preserveWord: boolean = false
   ): string | null {
     const matchedNode = this.getMappingsForText(
       text,
       caseSensitive,
-      perserveWord
+      preserveWord
     );
     return matchedNode && matchedNode[0] ? matchedNode[0][1] : null;
   }
@@ -55,12 +55,12 @@ export class Aracari<T extends HTMLElement = HTMLElement> {
   public getAddressesForText(
     text,
     caseSensitive: boolean = true,
-    perserveWord: boolean = false
+    preserveWord: boolean = false
   ): string[] | null {
     const matchedNode = this.getMappingsForText(
       text,
       caseSensitive,
-      perserveWord
+      preserveWord
     );
     return matchedNode ? matchedNode.map((node) => node[1]) : null;
   }
@@ -74,8 +74,8 @@ export class Aracari<T extends HTMLElement = HTMLElement> {
     return !!this.getAddressForText(text, caseSensitive);
   }
 
-  public getTextNode(text: string, caseSensitive: boolean = true) {
-    const address = this.getAddressForText(text, caseSensitive);
+  public getTextNode(text: string, caseSensitive: boolean = true, preserveWord: boolean = false) {
+    const address = this.getAddressForText(text, caseSensitive, preserveWord);
     if (!address) return null;
     return this.getNodeByAddress(address);
   }
@@ -88,34 +88,43 @@ export class Aracari<T extends HTMLElement = HTMLElement> {
     let node;
     const {
       at,
-      perserveWord,
+      preserveWord,
       replacementIndex = 0,
-      // not used anymore
-      shouldUseNonLatinMatch = false,
+      caseSensitive = true,
     } = options;
 
     if (at) {
       node = this.getNodeByAddress(at);
     } else {
-      node = this.getTextNode(text);
+      node = this.getTextNode(text, caseSensitive, preserveWord);
     }
 
-    const pattern = createRegExpSearch(text, perserveWord);
-    const textMatch = node.textContent.match(pattern);
+    const pattern = createRegExpSearch(text, preserveWord ?? true);
+
+
+    const textMatch = node?.textContent.match(pattern);
 
     // Handling text around replacement text
     if (!textMatch) {
-      throw new Error("Text not found in node");
+      throw new Error(`Text "${text}" not found in node in ${node?.textContext ?? "unknown"}`);
     }
 
     const contents = node.textContent.split(pattern);
-    const [preChar, postChar] = getSurroundingChars(textMatch[0]);
-    const preText = contents.slice(0, replacementIndex + 1);
-    const postText = contents.slice(replacementIndex + 1);
+    const [preChar, postChar] = getSurroundingChars(textMatch[replacementIndex]);
+
+    const preText = joinArrayWith(contents.slice(0, replacementIndex + 1), ({ nextIndex }) => {
+      const [preChar, postChar] = getSurroundingChars(textMatch[nextIndex - 1]);
+      return `${preChar}${text}${postChar}`;
+    });
+    const postText = joinArrayWith(contents.slice(replacementIndex + 1), ({ nextIndex}) => {
+      const [preChar, postChar] = getSurroundingChars(textMatch[nextIndex]);
+      return `${preChar}${text}${postChar}`;
+    });    
+
     const replacementNodes = [
-      this.maybeCreateTextNode(preText.join(text) + preChar),
+      this.maybeCreateTextNode(preText + preChar),
       ...(Array.isArray(nodes) ? nodes : [nodes]),
-      this.maybeCreateTextNode(postChar + postText.join(text)),
+      this.maybeCreateTextNode(postChar + postText),
     ].filter((x) => x);
 
     // Replace existing text node with new node-list.
@@ -124,7 +133,7 @@ export class Aracari<T extends HTMLElement = HTMLElement> {
   }
 
   public remap(mapping?: Mapping) {
-    this.mapping = mapping ?? this.getTextNodeMapping(this.root);
+    this.mapping = mapping ?? this.getTextNodeMapping(this.root!);
     return this;
   }
 
@@ -144,16 +153,16 @@ export class Aracari<T extends HTMLElement = HTMLElement> {
     }
     const newPath = [...path];
     const childNth = newPath.shift();
-    const child = parent.childNodes[childNth] as T | undefined;
+    const child = parent.childNodes[childNth as number] as T | undefined;
     return this.walkNodes(child, newPath);
   }
 
   private getMappingsForText(
     text: string,
     caseSensitive: boolean = true,
-    perserveWord: boolean = false
+    preserveWord: boolean = false
   ): string[][] {
-    const delimiter = perserveWord ? "\\b" : "";
+    const delimiter = preserveWord ? "\\b" : "";
     const pattern = new RegExp(
       `${delimiter}${escapeRegExp(text)}${delimiter}`,
       `${caseSensitive ? "i" : ""}g`
@@ -170,7 +179,7 @@ export class Aracari<T extends HTMLElement = HTMLElement> {
     if (!text.length) {
       return null;
     }
-    return createTextNode(text);
+    return createTextNode?.(text);
   }
 
   // Builds up a mapping of text and path to location of text node.
