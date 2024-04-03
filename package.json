@@ -1,5 +1,5 @@
 {
-  "name": "aracari",
+  "name": "@jcblw/aracari",
   "version": "0.5.0",
   "description": "This is a small utility to pull text from html and also replace text in html.",
   "main": "dist/index.js",
